@@ -86,6 +86,17 @@ h2 { font-family: var(--serif); font-weight: 600; font-size: 1.25rem; line-heigh
 .tr.p.t { border-color: var(--warn); }
 .trow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; font-size: .82rem; color: var(--muted); }
 
+/* ritm */
+.delta { font-weight: 600; white-space: nowrap; }
+.delta.up { color: var(--warn); }
+.delta.down { color: var(--L); }
+.pace { margin: 16px 0 0; padding: 16px; background: var(--surface); border-radius: 14px; }
+.pl { list-style: none; margin: 10px 0 0; padding: 0; font-size: .9rem; }
+.pl li { display: flex; gap: 12px; align-items: center; padding: 6px 0; border-top: 1px solid var(--rule); }
+.pl .diff { min-width: 72px; color: var(--muted); }
+.suggest { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.suggest p { margin: 0 0 10px; font-size: .93rem; }
+
 /* calendar */
 section.cal { margin: 32px 0 0; }
 .grid { display: grid; grid-template-columns: 34px repeat(7, 1fr); gap: 3px; margin-top: 8px; }
