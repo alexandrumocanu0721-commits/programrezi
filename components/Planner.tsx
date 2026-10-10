@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { BOOKS, getCatalog, type Book, type Topic } from '@/lib/catalog';
 import {
   INT, DEFAULT_WEIGHTS, DIFF, MON, addDays, compute, dayType, baseType, de, diffDays, fmtDay, fmtRange, fmtShort,
-  grileFor, isDone, mondayOf, orderedTopics, pagini, reviews, studyBetween, tdays, todayISO, zile,
+  grileFor, isDone, mondayOf, orderedTopics, pagini, reviews, studyBetween, tdays, todayISO, zile, actualDays, pace,
   type Computed, type Reviews, type UserState,
 } from '@/lib/plan';
 import ReorderPanel from './ReorderPanel';
@@ -102,11 +102,36 @@ export default function Planner({ username }: { username: string }) {
   const cur = remaining[0];
 
   // ---------- acțiuni ----------
-  const toggleDone = (t: Topic) => mut(n => {
-    const x = (n.topics[t.id] ||= {});
-    if (x.done) { delete x.done; delete x.doneDate; toast('Ai debifat: ' + t.t); }
-    else { x.done = true; x.doneDate = todayISO(); toast('Bifat: ' + t.t + '. Următoarea temă începe mâine.'); }
-  });
+  // Ziua 0 a grilelor = ziua în care ai terminat tema.
+  // „Am terminat tema” din cardul de sus folosește mereu azi.
+  // Bifa din listă: dacă planul zicea că tema se termina deja în trecut, presupunem că bifezi
+  // retroactiv și folosim ziua din plan. Data se poate corecta oricând din temă.
+  const toggleDone = (t: Topic, now = false) => {
+    const sp = C.spans[t.id];
+    const planned = sp?.length ? sp[sp.length - 1] : null;
+    const when = !now && planned && planned < today ? planned : today;
+    // Începutul real = prima zi planificată pentru temă (ziua de după tema anterioară).
+    const began = sp?.length && sp[0] < when ? sp[0] : when;
+    mut(n => {
+      const x = (n.topics[t.id] ||= {});
+      if (x.done) { delete x.done; delete x.doneDate; delete x.startDate; toast('Ai debifat: ' + t.t); }
+      else {
+        x.done = true; x.doneDate = when; x.startDate = began;
+        toast(when === today ? 'Bifat: ' + t.t + '. Grilele pornesc de azi.' : 'Bifat cu data ' + fmtDay(when) + '. O poți schimba din temă.');
+      }
+    });
+  };
+  const setDates = (t: Topic, a: string, d: string) => {
+    if (!a || !d || d > today) { toast('Alege date de azi sau din trecut.'); return; }
+    if (a > d) { toast('Începutul trebuie să fie înainte de final.'); return; }
+    mut(n => { const x = (n.topics[t.id] ||= {}); x.done = true; x.startDate = a; x.doneDate = d; });
+    toast('Salvat: ' + fmtRange(a, d) + '. Grilele și ritmul s-au recalculat.');
+  };
+  const P = pace(s, list);
+  const applyPace = () => {
+    mut(n => { P.suggest.forEach(r => r.remaining.forEach(t => { (n.topics[t.id] ||= {}).days = Math.min(15, Math.max(1, Math.round(tdays(n, t) * r.ratio))); })); });
+    toast('Am ajustat zilele temelor rămase după ritmul tău.');
+  };
   const stepDays = (t: Topic, dlt: number) => mut(n => {
     const v = Math.min(15, Math.max(1, tdays(n, t) + dlt));
     (n.topics[t.id] ||= {}).days = v;
@@ -168,11 +193,13 @@ export default function Planner({ username }: { username: string }) {
         </p>
       </header>
 
-      {cur && <NowCard s={s} cur={cur} next={remaining[1]} C={C} today={today} onDone={() => toggleDone(cur)} onStep={d => stepDays(cur, d)} onReplan={() => { mut(n => { n.replanFrom = todayISO(); }); toast('Planul pornește de azi.'); }} />}
+      {cur && <NowCard s={s} cur={cur} next={remaining[1]} C={C} today={today} onDone={() => toggleDone(cur, true)} onStep={d => stepDays(cur, d)} onReplan={() => { mut(n => { n.replanFrom = todayISO(); }); toast('Planul pornește de azi.'); }} />}
 
       <GrileCard s={s} RV={RV} today={today} gDate={gDate} setGDate={setGDate} onTotal={v => mut(n => { n.grile.total = v; })} />
 
       <Calendar s={s} C={C} today={today} onTap={tapDay} />
+
+      {P.measured > 0 && <PaceCard P={P} onApply={applyPace} />}
 
       <section className="topics" aria-label="Teme">
         <div className="sechead">
@@ -194,7 +221,7 @@ export default function Planner({ username }: { username: string }) {
                   <div>
                     <button className="ttitle" aria-expanded={open} onClick={() => setExpanded(p => { const n = new Set(p); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; })}>{t.t}</button>
                     <div className="meta"><span className="book">{BOOKS[t.b].name}</span><span>{t.c}, p. {t.p}</span><span>{pagini(t.n)}</span><Pips d={t.d} /><span>{zile(tdays(s, t))}</span></div>
-                    <div className="when2">{done ? 'Terminată ' + (s.topics[t.id]?.doneDate ? fmtDay(s.topics[t.id].doneDate!) : '') : sp?.length ? fmtRange(sp[0], sp[sp.length - 1]) : ''}</div>
+                    <div className="when2">{done ? <DoneLine s={s} t={t} /> : sp?.length ? fmtRange(sp[0], sp[sp.length - 1]) : ''}</div>
                     {ds && (
                       <div className="trow"><Track dates={ds} today={today} />
                         <span>{excluded ? 'scoasă din grile' : ni < 0 ? 'grile terminate' : ds[ni] === today ? 'grile azi, ziua ' + INT[ni] : 'grile ziua ' + INT[ni] + ', ' + fmtDay(ds[ni]!)}{boosted && !excluded ? ', prioritate ×2' : ''}</span>
@@ -203,6 +230,7 @@ export default function Planner({ username }: { username: string }) {
                     {open && (
                       <div className="more">
                         <p className="tip">Atenție la {t.tip}</p>
+                        {done && <DoneDates start={s.topics[t.id]?.startDate || s.topics[t.id]?.doneDate || today} end={s.topics[t.id]?.doneDate || today} max={today} onSave={(a, d) => setDates(t, a, d)} />}
                         {!done && (
                           <div className="stepper"><button onClick={() => stepDays(t, -1)} aria-label="O zi în minus">−</button><span>{zile(tdays(s, t))}</span><button onClick={() => stepDays(t, 1)} aria-label="O zi în plus">+</button></div>
                         )}
@@ -224,6 +252,62 @@ export default function Planner({ username }: { username: string }) {
 
       <div className={'toast' + (toastOn ? ' show' : '')} role="status" aria-live="polite">{toastMsg}</div>
     </main>
+  );
+}
+
+// ---------- data terminării ----------
+function DoneDates({ start, end, max, onSave }: { start: string; end: string; max: string; onSave: (a: string, d: string) => void }) {
+  const [a, setA] = useState(start);
+  const [d, setD] = useState(end);
+  useEffect(() => { setA(start); setD(end); }, [start, end]);
+  return (
+    <div style={{ marginTop: 4 }}>
+      <label className="field" style={{ paddingTop: 0 }}>Am început-o pe<input type="date" value={a} max={max} onChange={e => setA(e.target.value)} /></label>
+      <label className="field">Am terminat-o pe<input type="date" value={d} max={max} onChange={e => setD(e.target.value)} /></label>
+      <div className="field" style={{ justifyContent: 'flex-end', borderBottom: 0 }}>
+        <button className="btn" disabled={a === start && d === end} onClick={() => onSave(a, d)}>Salvează datele temei</button>
+      </div>
+    </div>
+  );
+}
+
+function DoneLine({ s, t }: { s: UserState; t: Topic }) {
+  const x = s.topics[t.id];
+  const ad = actualDays(s, t), p = tdays(s, t);
+  const end = x?.doneDate ? fmtDay(x.doneDate) : '';
+  if (ad == null) return <>Terminată {end}</>;
+  const dlt = ad - p;
+  return (
+    <>Terminată {end}, în {zile(ad)}{dlt !== 0 && <> <span className={'delta ' + (dlt > 0 ? 'up' : 'down')}>{dlt > 0 ? '+' : '−'}{zile(Math.abs(dlt))} față de plan</span></>}</>
+  );
+}
+
+const DIFF_PL = ['', 'ușoare', 'medii', 'grele'];
+function PaceCard({ P, onApply }: { P: ReturnType<typeof pace>; onApply: () => void }) {
+  const head = P.delta === 0 ? 'Ești exact pe ritmul planului.'
+    : P.delta > 0 ? `Până acum ți-a luat cu ${zile(P.delta)} mai mult decât planul.`
+    : `Până acum ai fost cu ${zile(-P.delta)} mai rapid decât planul.`;
+  return (
+    <section className="pace" aria-label="Ritmul tău">
+      <h2>Ritmul tău</h2>
+      <p className="status" style={{ marginTop: 4 }}>{head}
+        <small>{P.measured} {P.measured === 1 ? 'temă măsurată' : de(P.measured) + 'teme măsurate'}: {P.longer} mai {P.longer === 1 ? 'lungă' : 'lungi'}, {P.shorter} mai {P.shorter === 1 ? 'scurtă' : 'scurte'}, restul la timp.</small>
+      </p>
+      <ul className="pl">
+        {P.rows.filter(r => r.n > 0).map(r => {
+          const pct = Math.round((r.ratio - 1) * 100);
+          return (
+            <li key={r.d}><Pips d={r.d} /><span>{r.actual} din {zile(r.planned)} planificate{pct !== 0 && <>, <span className={'delta ' + (pct > 0 ? 'up' : 'down')}>{pct > 0 ? '+' : '−'}{Math.abs(pct)}%</span></>}</span></li>
+          );
+        })}
+      </ul>
+      {P.suggest.length > 0 && (
+        <div className="suggest">
+          <p>{P.suggest.map(r => `Temele ${DIFF_PL[r.d]} îți iau ${r.ratio > 1 ? 'cu ' + Math.round((r.ratio - 1) * 100) + '% mai mult' : 'cu ' + Math.round((1 - r.ratio) * 100) + '% mai puțin'}; la cele ${r.remaining.length} rămase ar însemna ${r.extra > 0 ? '+' : '−'}${zile(Math.abs(r.extra))}.`).join(' ')}</p>
+          <button className="btn" onClick={onApply}>Ajustează temele rămase după ritmul meu</button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -296,6 +380,7 @@ function GrileCard({ s, RV, today, gDate, setGDate, onTotal }: { s: UserState; R
       ) : (
         <p className="gempty">Nicio temă programată la grile în ziua asta.{firstDue && gd < s.settings.start ? ' Primele grile: ' + fmtDay(firstDue) + '.' : ''}</p>
       )}
+      <p className="hint" style={{ margin: '10px 0 0' }}>Ziua 0 e ziua în care termini tema; ziua 2, 7, 14, 30, 60 se numără doar în zile de învățare de atunci. Pentru temele neterminate, grilele urmează planul și se mută odată cu el.</p>
       <div className="gcfg">
         <label htmlFor="g-total">Grile pe zi</label>
         <div className="stepper">
