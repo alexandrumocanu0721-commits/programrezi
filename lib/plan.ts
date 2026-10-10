@@ -1,6 +1,6 @@
 import { getCatalog, DEFAULT_CATALOG, type Topic } from './catalog';
 
-export interface TopicState { days?: number; done?: boolean; doneDate?: string }
+export interface TopicState { days?: number; done?: boolean; doneDate?: string; startDate?: string }
 
 export interface UserState {
   v: 2;
@@ -176,6 +176,34 @@ export function grileFor(s: UserState, RV: Reviews, date: string) {
   const w = items.map(x => (s.grile.weights[x.s] ?? 0) * (s.grile.boost.includes(x.t.id) ? 2 : 1));
   const counts = alloc(w, s.grile.total);
   return items.map((x, i) => ({ ...x, count: counts[i], boosted: s.grile.boost.includes(x.t.id) }));
+}
+
+// ---------- ritm: cât ți-a luat de fapt fiecare temă ----------
+// Zilele reale = zilele de învățare dintre începutul și sfârșitul temei (zilele blocate nu se numără).
+export function actualDays(s: UserState, t: Topic): number | null {
+  const x = s.topics[t.id];
+  if (!x?.done || !x.doneDate || !x.startDate) return null;
+  return Math.max(1, studyBetween(s, x.startDate, x.doneDate));
+}
+
+export interface PaceRow { d: number; n: number; planned: number; actual: number; ratio: number; remaining: Topic[]; extra: number }
+
+export function pace(s: UserState, list: Topic[]) {
+  let planned = 0, actual = 0, longer = 0, shorter = 0;
+  const rows: PaceRow[] = [];
+  for (const d of [1, 2, 3]) {
+    let n = 0, p = 0, a = 0;
+    list.filter(t => t.d === d).forEach(t => { const ad = actualDays(s, t); if (ad == null) return; n++; p += tdays(s, t); a += ad; });
+    planned += p; actual += a;
+    const ratio = p ? a / p : 1;
+    const remaining = list.filter(t => t.d === d && !isDone(s, t));
+    const extra = remaining.reduce((acc, t) => acc + Math.max(1, Math.round(tdays(s, t) * ratio)) - tdays(s, t), 0);
+    rows.push({ d, n, planned: p, actual: a, ratio, remaining, extra });
+  }
+  list.forEach(t => { const ad = actualDays(s, t); if (ad == null) return; const p = tdays(s, t); if (ad > p) longer++; else if (ad < p) shorter++; });
+  // Sugerăm ajustarea doar când avem măcar 2 teme terminate de acel nivel și abaterea e de peste 15%.
+  const suggest = rows.filter(r => r.n >= 2 && Math.abs(r.ratio - 1) >= 0.15 && r.remaining.length && r.extra !== 0);
+  return { rows, delta: actual - planned, longer, shorter, measured: rows.reduce((a, r) => a + r.n, 0), suggest };
 }
 
 export function summary(s: UserState) {

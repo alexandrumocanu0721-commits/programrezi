@@ -33,7 +33,11 @@ export function sanitize(input: any): UserState {
     if (!idSet.has(id) || !v || typeof v !== 'object') continue;
     const o: any = v; const t: any = {};
     if (o.days != null) t.days = int(o.days, 1, 15, 1);
-    if (o.done === true) { t.done = true; if (isISO(o.doneDate)) t.doneDate = o.doneDate; }
+    if (o.done === true) {
+      t.done = true;
+      if (isISO(o.doneDate)) t.doneDate = o.doneDate;
+      if (isISO(o.startDate) && (!t.doneDate || o.startDate <= t.doneDate)) t.startDate = o.startDate;
+    }
     if (Object.keys(t).length) topics[id] = t;
   }
 
